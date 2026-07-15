@@ -6,9 +6,13 @@
 #}
 {% set rocm_debug_agent_setup = "echo 'ROCm debug agent disabled; re-enable rocm_debug_agent_setup in test-template-amd.j2 after validating coredump setup'" %}
 
-{% macro amd_infra_retry(indent='') -%}
+{% macro amd_infra_retry(indent='', retry_exit_status_one=false) -%}
 {{ indent }}retry:
 {{ indent }}  automatic:
+{% if retry_exit_status_one %}
+{{ indent }}    - exit_status: 1  # Transient Docker/BuildKit failure
+{{ indent }}      limit: 1
+{% endif %}
 {{ indent }}    - signal_reason: agent_stop  # Agent host stopped unexpectedly
 {{ indent }}      limit: 1
 {{ indent }}    - signal_reason: agent_refused  # Agent could not accept the job
@@ -102,7 +106,7 @@ rocm/vllm-dev:ci_base-$BUILDKITE_COMMIT
           DOCKER_BUILDKIT: "1"
           BUILDKIT_PROGRESS: "tty"
           TERM: "xterm-256color"
-{{ amd_infra_retry('        ') }}
+{{ amd_infra_retry('        ', true) }}
         agents:
           queue: amd-cpu
 
@@ -120,7 +124,7 @@ rocm/vllm-dev:ci_base-$BUILDKITE_COMMIT
           PYTORCH_ROCM_ARCH: "gfx90a;gfx942;gfx950"
           REMOTE_VLLM: "1"
           VLLM_BRANCH: "$BUILDKITE_COMMIT"
-{{ amd_infra_retry('        ') }}
+{{ amd_infra_retry('        ', true) }}
         agents:
           queue: amd-cpu
 
@@ -140,7 +144,7 @@ rocm/vllm-dev:ci_base-$BUILDKITE_COMMIT
           IMAGE_TAG: "rocm/vllm-ci:$BUILDKITE_COMMIT"
           REMOTE_VLLM: "1"
           VLLM_BRANCH: "$BUILDKITE_COMMIT"
-{{ amd_infra_retry('        ') }}
+{{ amd_infra_retry('        ', true) }}
         agents:
           queue: amd-cpu
 
