@@ -90,6 +90,8 @@ def test_skip_timeout_omits_rocm_base_refresh_timeout(fake_global_config, monkey
         ("mi300_4", AgentQueue.AMD_MI300_4, True, "4"),
         ("mi325_1", AgentQueue.AMD_MI325_1, False, "1"),
         ("mi325_1", AgentQueue.AMD_MI325_1, True, "1"),
+        ("mi355_dpx", AgentQueue.AMD_MI355_DPX, False, "1"),
+        ("mi355_dpx", AgentQueue.AMD_MI355_DPX, True, "1"),
     ],
 )
 def test_direct_amd_gpu_steps_use_dind_flag(device, queue, dind, expected_gpu_count):
@@ -174,18 +176,19 @@ def test_direct_amd_gpu_steps_use_dind_flag(device, queue, dind, expected_gpu_co
     assert "CUDA_ENABLE_COREDUMP_ON_EXCEPTION" not in test_commands
 
 
-def test_amd_device_rejects_conflicting_gpu_count():
+@pytest.mark.parametrize("device,gpu_count", [("mi300_4", 4), ("mi355_dpx", 1)])
+def test_amd_device_rejects_conflicting_gpu_count(device, gpu_count):
     step = Step(
         label="AMD GPU count mismatch",
         group="Direct AMD",
-        device="mi300_4",
+        device=device,
         num_devices=2,
         commands=["pytest tests/example.py"],
     )
 
     with pytest.raises(
         ValueError,
-        match=r"AMD device mi300_4 provides 4 GPUs, but num_devices=2",
+        match=rf"AMD device {device} provides {gpu_count} GPUs, but num_devices=2",
     ):
         _render_single_step(step)
 
@@ -216,8 +219,17 @@ def test_rocm_debug_agent_setup_is_opt_in(monkeypatch):
     assert "WARNING: ROCm debug agent not found at" in test_commands
 
 
+@pytest.mark.parametrize(
+    "device,queue",
+    [
+        ("mi325_1", AgentQueue.AMD_MI325_1),
+        ("mi355_dpx", AgentQueue.AMD_MI355_DPX),
+    ],
+)
 def test_amd_mirror_uses_shared_gating_with_amd_dependency_fallback(
     fake_global_config,
+    device,
+    queue,
 ):
     fake_global_config["list_file_diff"] = ["vllm/model_executor/foo.py"]
     step = Step(
@@ -230,7 +242,7 @@ def test_amd_mirror_uses_shared_gating_with_amd_dependency_fallback(
         source_file_dependencies=["vllm/"],
         mirror={
             "amd": {
-                "device": "mi325_1",
+                "device": device,
                 "depends_on": ["image-build-amd"],
                 "soft_fail": False,
                 "source_file_dependencies": ["amd-only/"],
@@ -262,7 +274,7 @@ def test_amd_mirror_uses_shared_gating_with_amd_dependency_fallback(
     assert len(amd_group.steps) == 1
     assert amd_command_step.key == "amd-mirrored-test"
     assert amd_command_step.depends_on == ["image-build-amd"]
-    assert amd_command_step.agents == {"queue": AgentQueue.AMD_MI325_1}
+    assert amd_command_step.agents == {"queue": queue}
     assert amd_command_step.soft_fail is False
     assert "ROCm debug agent disabled" in (amd_command_step.env["VLLM_TEST_COMMANDS"])
 
