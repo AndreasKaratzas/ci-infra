@@ -179,8 +179,6 @@ upload_pipeline() {
             -D vllm_merge_base_commit="$MERGE_BASE_COMMIT" \
             -D cov_enabled="$COV_ENABLED" \
             -D vllm_ci_branch="$VLLM_CI_BRANCH" \
-            -D rocm_base_refresh_skip="${ROCM_BASE_REFRESH_SKIP:-0}" \
-            -D rocm_base_refresh_force="${ROCM_BASE_REFRESH_FORCE:-0}" \
             | sed '/^[[:space:]]*$/d' \
             > pipeline.yaml
     )

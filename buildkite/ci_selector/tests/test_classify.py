@@ -3180,7 +3180,7 @@ def test_rust_reaches_hardware_image_consumers(state):
     for sid in (
         "vllm_rocm_ci:cpu-kernel-tests",
         "vllm_rocm_ci:image-build-amd",
-        "vllm_rocm_ci:ensure-ci-base-amd",
+        "vllm_rocm_ci:build-rocm-runtime-amd",
         "vllm_intel_ci:image-build-xpu",
     ):
         assert sid in sel.selected, sid

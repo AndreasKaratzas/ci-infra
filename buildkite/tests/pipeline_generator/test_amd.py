@@ -23,7 +23,7 @@ def test_amd_template_retries_gpu_hang_abort():
 def test_amd_template_uses_build_scoped_images():
     template = (Path(__file__).parents[2] / "test-template-amd.j2").read_text()
 
-    assert amd.AMD_NATIVE_BASE_IMAGE in template
+    assert "ci_base" not in template
     assert amd.AMD_CI_IMAGE in template
     assert "rocm_build_scoped_images" not in template
 
@@ -53,32 +53,32 @@ def _render_single_step(step):
     )[0]
 
 
-def _rocm_base_refresh_step():
+def _rocm_runtime_step():
     return Step(
-        label="AMD: :docker: refresh ROCm base",
+        label="AMD: :docker: build ROCm runtime",
         group="Hardware - AMD Build",
-        key=amd.AMD_ROCM_BASE_REFRESH_STEP_KEY,
+        key=amd.AMD_ROCM_RUNTIME_STEP_KEY,
         device="amd_cpu",
         no_plugin=True,
-        commands=["bash .buildkite/scripts/rocm/refresh-base-image.sh"],
+        commands=["bash .buildkite/scripts/rocm/build-runtime.sh"],
         concurrency=1,
-        concurrency_group="vllm/rocm/base-build/$BUILDKITE_COMMIT",
+        concurrency_group="vllm/rocm/runtime-build/$BUILDKITE_COMMIT",
     )
 
 
-def test_rocm_base_selector_keeps_build_timeout():
-    command_step = _render_single_step(_rocm_base_refresh_step()).steps[0]
+def test_rocm_runtime_step_keeps_build_timeout():
+    command_step = _render_single_step(_rocm_runtime_step()).steps[0]
 
     assert command_step.timeout_in_minutes == 540
     assert command_step.concurrency == 1
     assert command_step.concurrency_group.endswith("/$BUILDKITE_COMMIT")
 
 
-def test_skip_timeout_omits_rocm_base_refresh_timeout(fake_global_config, monkeypatch):
+def test_skip_timeout_omits_rocm_runtime_timeout(fake_global_config, monkeypatch):
     monkeypatch.setenv(buildkite_step.SKIP_TIMEOUT_ENV_VAR, "1")
     fake_global_config["list_file_diff"] = ["docker/Dockerfile.rocm_base"]
 
-    command_step = _render_single_step(_rocm_base_refresh_step()).steps[0]
+    command_step = _render_single_step(_rocm_runtime_step()).steps[0]
 
     assert command_step.timeout_in_minutes is None
     assert "timeout_in_minutes" not in command_step.model_dump(exclude_none=True)
@@ -132,7 +132,9 @@ def test_direct_amd_gpu_steps_use_dind_flag(device, queue, dind, expected_gpu_co
         assert command_step.plugins is not None
         pod_patch = command_step.plugins[0]["kubernetes"]["podSpecPatch"]
         container = pod_patch["containers"][0]
-        assert container["image"] == amd.AMD_NATIVE_BASE_IMAGE
+        assert container["image"] == amd.AMD_CI_IMAGE
+        assert container["imagePullPolicy"] == "IfNotPresent"
+        assert command_step.env["VLLM_CI_ARTIFACT_STEP"] == amd.AMD_ARTIFACT_STEP
         if device == "mi355_dpx":
             assert "resources" not in container
         else:
@@ -154,12 +156,16 @@ def test_direct_amd_gpu_steps_use_dind_flag(device, queue, dind, expected_gpu_co
     else:
         assert command_step.plugins is None
         assert "AMD_CI_RUNTIME" not in command_step.env
-        assert command_step.env["DOCKER_IMAGE_NAME"] == amd.AMD_STABLE_CI_BASE_IMAGE
-        assert command_step.env["VLLM_CI_FALLBACK_IMAGE"] == amd.AMD_CI_IMAGE
+        assert command_step.env["DOCKER_IMAGE_NAME"] == amd.AMD_CI_IMAGE
 
-    assert command_step.env["VLLM_CI_BASE_IMAGE"] == (
-        amd.AMD_NATIVE_BASE_IMAGE if not dind else amd.AMD_STABLE_CI_BASE_IMAGE
-    )
+    for name in (
+        "VLLM_CI_BASE_IMAGE",
+        "VLLM_CI_FALLBACK_IMAGE",
+        "VLLM_CI_THIN_IMAGE",
+        "VLLM_CI_USE_ARTIFACTS",
+        "VLLM_CI_ARTIFACT_GLOB",
+    ):
+        assert name not in command_step.env
 
     assert command_step.retry == amd.AMD_RETRY
     assert len(command_step.retry["automatic"]) == 7
@@ -420,7 +426,7 @@ def test_untagged_mirror_defaults_to_dind(
     amd_command_step = amd_group.steps[1]
     assert isinstance(amd_command_step, buildkite_step.BuildkiteCommandStep)
     assert amd_command_step.plugins is None
-    assert amd_command_step.env["DOCKER_IMAGE_NAME"] == amd.AMD_STABLE_CI_BASE_IMAGE
+    assert amd_command_step.env["DOCKER_IMAGE_NAME"] == amd.AMD_CI_IMAGE
 
 
 @pytest.mark.parametrize(

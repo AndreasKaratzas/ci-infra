@@ -9,15 +9,14 @@ import shlex
 from amd import (
     AMD_ALWAYS_RUN_STEP_KEYS,
     AMD_NATIVE_RUNTIME_SOURCE_DEPENDENCIES,
-    AMD_ROCM_BASE_REFRESH_STEP_KEY,
+    AMD_ROCM_RUNTIME_STEP_KEY,
+    AMD_ROCM_RUNTIME_TIMEOUT_MINUTES,
     _amd_mirror_should_run,
     build_amd_step_options,
     ensure_amd_stack_error_retry,
     get_amd_agent_queue,
     get_amd_setup_commands,
     get_amd_timeout_in_minutes,
-    get_rocm_base_refresh_env,
-    get_rocm_base_refresh_timeout,
     is_amd_device,
     is_amd_gpu_device,
 )
@@ -1138,12 +1137,9 @@ def convert_group_step_to_buildkite_step(
                 buildkite_step.retry = ensure_amd_stack_error_retry(
                     buildkite_step.retry
                 )
-            if step.key == AMD_ROCM_BASE_REFRESH_STEP_KEY:
-                refresh_env = dict(buildkite_step.env or {})
-                refresh_env.update(get_rocm_base_refresh_env())
-                buildkite_step.env = refresh_env
+            if step.key == AMD_ROCM_RUNTIME_STEP_KEY:
                 buildkite_step.timeout_in_minutes = _get_timeout_in_minutes(
-                    get_rocm_base_refresh_timeout()
+                    AMD_ROCM_RUNTIME_TIMEOUT_MINUTES
                 )
             elif is_amd_device(step.device):
                 buildkite_step.timeout_in_minutes = _get_timeout_in_minutes(

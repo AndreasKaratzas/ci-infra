@@ -54,6 +54,12 @@ def test_amd_template_block_keys_and_dependencies(label, slug, dind):
     assert block["key"] == expected_key
     assert block["block"] == f"Run mi355_4: {label}"
     assert command["label"] == f"mi355_4: {label}"
-    assert command["depends_on"] == (
-        expected_key if dind else [expected_key, "verify-native-ci-base-amd"]
-    )
+    assert command["depends_on"] == expected_key
+    image = "rocm/vllm-ci:build-$BUILDKITE_BUILD_ID"
+    if dind:
+        assert command["env"]["DOCKER_IMAGE_NAME"] == image
+    else:
+        pod_spec = command["plugins"][0]["kubernetes"]["podSpecPatch"]
+        assert pod_spec["containers"][0]["image"] == image
+        assert "DOCKER_IMAGE_NAME" not in command["env"]
+    assert "VLLM_CI_USE_ARTIFACTS" not in command["env"]

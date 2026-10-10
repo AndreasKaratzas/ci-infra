@@ -6,13 +6,9 @@ from typing import Any, Dict, List, Mapping, Optional, TypedDict
 from constants import AgentQueue, DeviceType
 
 AMD_TEST_COMMAND = "bash .buildkite/scripts/hardware_ci/run-amd-test.sh"
-AMD_STABLE_CI_BASE_IMAGE = "rocm/vllm-dev:ci_base"
-AMD_NATIVE_BASE_IMAGE = "rocm/vllm-dev:ci_base-build-$BUILDKITE_BUILD_ID"
+# Per-build test image (runtime-ci plus one vLLM layer) pushed by
+# image-build-amd. Native pods and DinD jobs both run it.
 AMD_CI_IMAGE = "rocm/vllm-ci:build-$BUILDKITE_BUILD_ID"
-
-
-AMD_ARTIFACT_GLOB = "artifacts/vllm-rocm-install/vllm-rocm-install.tar.gz"
-AMD_ARTIFACT_CHECKSUM_GLOB = f"{AMD_ARTIFACT_GLOB}.sha256"
 AMD_ARTIFACT_STEP = "image-build-amd"
 AMD_RESULTS_ROOT = "/home/buildkite-agent/huggingface/amd-ci-results"
 AMD_DIAGNOSTICS_DIR = "artifacts/amd-gpu-diagnostics"
@@ -30,16 +26,12 @@ AMD_NATIVE_RUNTIME_SOURCE_DEPENDENCIES = (
     ".buildkite/scripts/hardware_ci/run-amd-test.sh",
 )
 AMD_STANDARD_TIMEOUT_MINUTES = 3 * 60
-AMD_ROCM_BASE_REFRESH_STEP_KEY = "refresh-rocm-base-amd"
+# Builds (or reuses) the content-keyed ROCm runtime image. A miss can rebuild
+# source dependency wheels, which takes hours on a cold builder.
+AMD_ROCM_RUNTIME_STEP_KEY = "build-rocm-runtime-amd"
 AMD_ROCM_BASE_DOCKERFILE = "docker/Dockerfile.rocm_base"
-AMD_ROCM_BASE_REFRESH_TIMEOUT_MINUTES = 9 * 60
-AMD_ROCM_BASE_REFRESH_NOOP_TIMEOUT_MINUTES = 15
-AMD_ALWAYS_RUN_STEP_KEYS = frozenset(
-    {
-        "ensure-ci-base-amd",
-        AMD_ROCM_BASE_REFRESH_STEP_KEY,
-    }
-)
+AMD_ROCM_RUNTIME_TIMEOUT_MINUTES = 9 * 60
+AMD_ALWAYS_RUN_STEP_KEYS = frozenset({AMD_ROCM_RUNTIME_STEP_KEY})
 AMD_STACK_ERROR_RETRY = {"signal_reason": "stack_error", "limit": 1}
 AMD_RETRY = {
     "automatic": [
@@ -103,24 +95,10 @@ def ensure_amd_stack_error_retry(
     return retry_policy
 
 
-def get_rocm_base_refresh_timeout() -> int:
-    if os.getenv("ROCM_BASE_REFRESH_SKIP", "0") == "1":
-        return AMD_ROCM_BASE_REFRESH_NOOP_TIMEOUT_MINUTES
-    return AMD_ROCM_BASE_REFRESH_TIMEOUT_MINUTES
-
-
 def _amd_mirror_should_run(default_should_run: bool, list_file_diff: List[str]) -> bool:
     return default_should_run or (
         os.getenv("NOAUTO") != "1" and AMD_ROCM_BASE_DOCKERFILE in list_file_diff
     )
-
-
-def get_rocm_base_refresh_env() -> Dict[str, str]:
-    """Bind the refresh script controls to the timeout decision."""
-    return {
-        "ROCM_BASE_REFRESH_SKIP": os.getenv("ROCM_BASE_REFRESH_SKIP", "0"),
-        "ROCM_BASE_REFRESH_FORCE": os.getenv("ROCM_BASE_REFRESH_FORCE", "0"),
-    }
 
 
 @dataclass(frozen=True)
@@ -308,18 +286,14 @@ def _get_amd_env(
         # escape into this execution mode.
         env.pop("DOCKER_IMAGE_NAME", None)
         env.pop("DOCKER_BUILDKIT", None)
-        env.pop("VLLM_CI_FALLBACK_IMAGE", None)
+        # The Python-only job downloads the wheel from this step.
         env.setdefault("VLLM_CI_ARTIFACT_STEP", AMD_ARTIFACT_STEP)
-        env.setdefault("VLLM_CI_ARTIFACT_CHECKSUM_GLOB", AMD_ARTIFACT_CHECKSUM_GLOB)
         env.setdefault("VLLM_CI_REQUIRE_PERSISTENT_HF_CACHE", "1")
         env.setdefault("HF_HOME", AMD_HF_HOME)
         env.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
         env.setdefault("HF_HUB_ETAG_TIMEOUT", "60")
         env.update(
             {
-                "VLLM_CI_BASE_IMAGE": AMD_NATIVE_BASE_IMAGE,
-                "VLLM_CI_USE_ARTIFACTS": "1",
-                "VLLM_CI_ARTIFACT_GLOB": AMD_ARTIFACT_GLOB,
                 "VLLM_CI_RESULTS_ROOT": AMD_RESULTS_ROOT,
                 "VLLM_CI_WORKSPACE": AMD_NATIVE_WORKSPACE,
                 "VLLM_CI_REQUIRE_WORKSPACE_MOUNT": "1",
@@ -333,12 +307,8 @@ def _get_amd_env(
     else:
         env.update(
             {
-                "DOCKER_BUILDKIT": "1",
-                "DOCKER_IMAGE_NAME": AMD_STABLE_CI_BASE_IMAGE,
-                "VLLM_CI_BASE_IMAGE": AMD_STABLE_CI_BASE_IMAGE,
-                "VLLM_CI_FALLBACK_IMAGE": AMD_CI_IMAGE,
-                "VLLM_CI_USE_ARTIFACTS": "1",
-                "VLLM_CI_ARTIFACT_GLOB": AMD_ARTIFACT_GLOB,
+                # Agent hooks and run-amd-test.sh both read DOCKER_IMAGE_NAME.
+                "DOCKER_IMAGE_NAME": AMD_CI_IMAGE,
                 "VLLM_CI_RESULTS_ROOT": AMD_RESULTS_ROOT,
                 "VLLM_TEST_COMMANDS": commands,
             }
@@ -367,7 +337,7 @@ def get_amd_k8s_plugin(
                     {
                         "name": "container-0",
                         "image": image,
-                        "imagePullPolicy": "Always",
+                        "imagePullPolicy": "IfNotPresent",
                         "securityContext": {
                             "allowPrivilegeEscalation": False,
                             "capabilities": {"add": ["IPC_LOCK"]},
@@ -448,7 +418,8 @@ def build_amd_step_options(
         raise ValueError("AMD dind must be a boolean.")
     if not dind and no_plugin:
         raise ValueError(
-            "Native AMD jobs cannot use no_plugin; the wrapper installs the test artifact."
+            "Native AMD jobs cannot use no_plugin; "
+            "the wrapper stages the test workspace."
         )
     if not dind and num_nodes and num_nodes > 1:
         raise ValueError("Native AMD jobs do not support multi-node execution.")
@@ -467,7 +438,7 @@ def build_amd_step_options(
         }
         plugins = [
             get_amd_k8s_plugin(
-                image=AMD_NATIVE_BASE_IMAGE,
+                image=AMD_CI_IMAGE,
                 gpu_count=gpu_count,
                 workspace=AMD_NATIVE_WORKSPACE,
                 workspace_volume_name=AMD_NATIVE_WORKSPACE_VOLUME,
