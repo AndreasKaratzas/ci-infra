@@ -25,8 +25,9 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#if ROCPROFILER_SDK_VERSION != 10302 && ROCPROFILER_SDK_VERSION != 10305
-#error "kernrec-rocm requires validated ROCProfiler SDK 1.3.2 (ROCm 7.2) or 1.3.5 (ROCm 10) headers"
+#if ROCPROFILER_SDK_VERSION != 10302 && ROCPROFILER_SDK_VERSION != 10305 && \
+    ROCPROFILER_SDK_VERSION != 10402 && ROCPROFILER_SDK_VERSION != 10501
+#error "kernrec-rocm requires ROCProfiler SDK 1.3.2, 1.3.5, 1.4.2 (ROCm 10.2) or 1.5.1 headers"
 #endif
 
 namespace {

@@ -274,6 +274,8 @@ def test_amd_skip_prefix_unarms_only_the_amd_mirror(monkeypatch, fake_global_con
     monkeypatch.setenv(recorder_switches.KERNREC_AMD_ENV_VAR, "1")
     fake_global_config["run_amd"] = True
     fake_global_config["nightly"] = "1"
+    if not buildkite_step.KERNREC_AMD_SKIP_STEP_PREFIXES:
+        pytest.skip("no AMD skip prefixes on this branch")
     (prefix,) = buildkite_step.KERNREC_AMD_SKIP_STEP_PREFIXES
     key = f"{prefix}k8v4"
     groups = _rendered_groups(

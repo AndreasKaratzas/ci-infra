@@ -517,15 +517,7 @@ KERNREC_SKIP_STEPS = {
 # Key prefixes of steps the ROCm recorder stays off, and why. Applies to the
 # AMD mirror and leaves the CUDA step recording. Matched with startswith, so
 # an entry also covers every key it prefixes.
-KERNREC_AMD_SKIP_STEP_PREFIXES = {
-    # Dispatch tracing swaps each completion signal for a pooled one, and
-    # rocprofiler-sdk 1.3.5 can release it while HIP still uses it:
-    # SIGSEGV in pool<signal_t>::release <- AsyncSignalHandler after the
-    # first mid-serving Triton JIT (vllm/ci #101909, #102057). 2 in ~58
-    # recorded runs, 0 in ~900 unrecorded. Back on once the image's SDK
-    # carries ROCm/rocm-systems#14385.
-    "lm-eval-turboquant-": "rocprofiler-sdk dispatch-signal SIGSEGV",
-}
+KERNREC_AMD_SKIP_STEP_PREFIXES: dict = {}
 
 # Keys of steps the ROCm recorder stays off, matched exactly against the
 # step's own key (the CUDA key for a mirror), so no other step shares an

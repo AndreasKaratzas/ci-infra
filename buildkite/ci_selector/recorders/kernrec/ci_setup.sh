@@ -291,7 +291,7 @@ PY
         timeout 60 bash "$source/build-rocm.sh" "$dir/libkernrec_rocm.so.tmp" >"$KERNREC_DIR/setup.log" 2>&1 \
           && mv "$dir/libkernrec_rocm.so.tmp" "$dir/libkernrec_rocm.so" || return 1
       fi
-      KERNREC_COLLECTION_ERROR="ROCProfiler SDK 1.3.2/1.3.5 runtime preflight failed; see preflight.log"
+      KERNREC_COLLECTION_ERROR="ROCProfiler SDK 1.3.2/1.3.5/1.4.2/1.5.1 runtime preflight failed; see preflight.log"
       timeout 10 "${KERNREC_PYTHON:-python3}" - "$sdk_lib/librocprofiler-sdk.so" "$dir/libkernrec_rocm.so" >"$KERNREC_DIR/preflight.log" 2>&1 <<'PY' || return 1
 import ctypes
 import sys
@@ -301,8 +301,8 @@ sdk.rocprofiler_get_version.argtypes = [ctypes.POINTER(ctypes.c_uint32)] * 3
 sdk.rocprofiler_get_version.restype = ctypes.c_int
 status = sdk.rocprofiler_get_version(*(ctypes.byref(part) for part in version))
 actual = tuple(part.value for part in version)
-if status != 0 or actual not in {(1, 3, 2), (1, 3, 5)}:
-    raise SystemExit(f"expected ROCProfiler SDK 1.3.2 or 1.3.5, got {actual}, status={status}")
+if status != 0 or actual not in {(1, 3, 2), (1, 3, 5), (1, 4, 2), (1, 5, 1)}:
+    raise SystemExit(f"expected ROCProfiler SDK 1.3.2, 1.3.5, 1.4.2 or 1.5.1, got {actual}, status={status}")
 ctypes.CDLL(sys.argv[2])
 print("ROCProfiler SDK %d.%d.%d and recorder dependencies loaded" % actual)
 PY
